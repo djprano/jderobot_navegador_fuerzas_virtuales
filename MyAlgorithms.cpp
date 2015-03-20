@@ -152,7 +152,7 @@ struct bvector{
 };
 struct timeval start;
 struct timeval end;
-double alpha = 0.5;
+double alpha = 1;
 
 namespace introrob {
 
@@ -201,20 +201,34 @@ CvPoint3D32f to3d(CvPoint2D32f p){
 bvector getRepulsion(jderobot::LaserDataPtr laser){
 
 	bvector bbb;
-	int i;
+	int i,media;
 	double invertir = M_PI/2;
 
 	bbb.x=0;
 	bbb.y=0;
+	media=0;
+
 	for(i=0;i<180;i++){
-		bbb.x=bbb.x+(10000-laser->distanceData[i])*alpha*cos(grados2rad(i)+invertir);
-		bbb.y=bbb.y+(10000-laser->distanceData[i])*alpha*sin(grados2rad(i)+invertir);
+		if(laser->distanceData[i] < 4000){
+			bbb.x=bbb.x+(4000-laser->distanceData[i])*alpha*cos(grados2rad(i)+invertir);
+			bbb.y=bbb.y+(4000-laser->distanceData[i])*alpha*sin(grados2rad(i)+invertir);
+			media++;
+		}
 	}
-	bbb.x = bbb.x/180;
-	bbb.y = bbb.y/180;
-	
+	if (media!=0){
+		bbb.x = bbb.x/180;
+		bbb.y = bbb.y/180;
+	}
 	return bbb;
 }
+
+	bvector repulsion;
+	bvector bdestino;
+	bvector resultante;
+
+	float const1 = 0.7;
+	float const2 = 2.2;
+
 
 void Api::RunNavigationAlgorithm() {
 	double v, w, l, pan, tilt;
@@ -232,24 +246,24 @@ void Api::RunNavigationAlgorithm() {
 	/*Manipulando imágenes de las cámaras*/
 	/*En el siguiente ejemplo se filtra el color rojo de la cámara izquierda para repintar esos píxeles a negro. Para visualizar el resultado
 	 debemos desplegar la ventana "WINDOW DEBUGGING" y pulsar PLAY para hacer correr nuestro código*/
-	imageCameras2openCV(); //Esta función es necesario llamarla ANTES de trabajar con las imágenes de las cámaras.
-	IplImage src = *this->imageCameraLeft; //Imagen de la cámara izquierda
+	// imageCameras2openCV(); //Esta función es necesario llamarla ANTES de trabajar con las imágenes de las cámaras.
+	// IplImage src = *this->imageCameraLeft; //Imagen de la cámara izquierda
 
-	for (i = 0; i < src.width; i++) {
-		for (j = 0; j < src.height; j++) {
-			if (((int) (unsigned char) src.imageData[(j * src.width + i)
-					* src.nChannels] > 120)
-					&& ((int) (unsigned char) src.imageData[(j * src.width + i)
-							* src.nChannels + 1] < 70)
-					&& ((int) (unsigned char) src.imageData[(j * src.width + i)
-							* src.nChannels + 2] < 70)) {
-				cont++;
-				src.imageData[(j * src.width + i) * src.nChannels] = 255; //R
-				src.imageData[(j * src.width + i) * src.nChannels + 1] = 255; //G
-				src.imageData[(j * src.width + i) * src.nChannels + 2] = 0; //B
-			}
-		}
-	}
+	// for (i = 0; i < src.width; i++) {
+	// 	for (j = 0; j < src.height; j++) {
+	// 		if (((int) (unsigned char) src.imageData[(j * src.width + i)
+	// 				* src.nChannels] > 120)
+	// 				&& ((int) (unsigned char) src.imageData[(j * src.width + i)
+	// 						* src.nChannels + 1] < 70)
+	// 				&& ((int) (unsigned char) src.imageData[(j * src.width + i)
+	// 						* src.nChannels + 2] < 70)) {
+	// 			cont++;
+	// 			src.imageData[(j * src.width + i) * src.nChannels] = 255; //R
+	// 			src.imageData[(j * src.width + i) * src.nChannels + 1] = 255; //G
+	// 			src.imageData[(j * src.width + i) * src.nChannels + 2] = 0; //B
+	// 		}
+	// 	}
+	// }
 
 	/* A continuacion se muestran las coordenadas de los puntos obtenidos tras hacer click en alguna de las camaras */
 	//std::cout << x_click_cameraleft << std::endl; // Coordenada x del punto donde se ha hecho click en la camara izquierda
@@ -273,8 +287,20 @@ void Api::RunNavigationAlgorithm() {
 	dest = this->getDestino();
 	d_absoluto = to3d(dest);
 	this->absolutas2relativas(d_absoluto,&d_relativo);
-	double angulo_relativo = atan2 (d_relativo.y,d_relativo.x);
-	double modulo = sqrt(d_relativo.x*d_relativo.x+d_relativo.y*d_relativo.y);
+	bdestino.x = const1*d_relativo.x;
+	bdestino.y = const1*d_relativo.y;
+	pvector pdestino = bvector2pvector(bdestino);
+	if(pdestino.modulo > 3000){
+		pdestino.modulo = 3000;
+	}
+	bdestino = pvector2bvector(pdestino);
+	bvector r = getRepulsion(laser);
+	repulsion.x = const2*r.x;
+	repulsion.y = const2*r.y;
+	resultante.x = bdestino.x+repulsion.x;
+	resultante.y = bdestino.y+repulsion.y;
+	double angulo_relativo = atan2 (resultante.y,resultante.x);
+	double modulo = sqrt(resultante.x*resultante.x+resultante.y*resultante.y);
 	this->setMotorW(angulo_relativo*5);
 	if(angulo_relativo>-0.5 && angulo_relativo<0.5){
 		if(modulo<2000){
@@ -286,22 +312,22 @@ void Api::RunNavigationAlgorithm() {
 	}else{
 		this->setMotorV(0);
 	}
-	printf("destPoint = [%f, %f] - ", d_absoluto.x, d_absoluto.y);
-	printf("destino relativo = [%f, %f]\n",d_relativo.x,d_relativo.y);
-	printf("angulo_relativo = [%f] - ",angulo_relativo);
-	printf("modulo = [%f]\n",modulo);
+	// printf("destPoint = [%f, %f] - ", d_absoluto.x, d_absoluto.y);
+	// printf("destino relativo = [%f, %f]\n",d_relativo.x,d_relativo.y);
+	// printf("angulo_relativo = [%f] - ",angulo_relativo);
+	// printf("modulo = [%f]\n",modulo);
 
 
 	//printf("myPosition = [%f, %f]\n", encoders->robotx, encoders->roboty);
 	/* FIN TOMA DE SENSORES */
-	switch (estado) {
-	case 0:        //el robot anda hacia delante
-		break;
-	case 1: //retrocedemos 2 segundos
-		break;
-	case 2:        //detectamos pared
-		break;
-	}
+	// switch (estado) {
+	// case 0:        //el robot anda hacia delante
+	// 	break;
+	// case 1: //retrocedemos 2 segundos
+	// 	break;
+	// case 2:        //detectamos pared
+	// 	break;
+	// }
 
 	/*Comandar robot*/
 	//Aqui enviamos los datos al robot
@@ -320,7 +346,7 @@ void Api::RunGraphicsAlgorithm() {
 	CvPoint3D32f aa, bb;
 	CvPoint3D32f a, b;
 	CvPoint3D32f c, d;
-	CvPoint3D32f color;
+	CvPoint3D32f colorDest,colorRes,colorRep,color;
 
 
 	//        // Init camera 1
@@ -352,37 +378,55 @@ void Api::RunGraphicsAlgorithm() {
 	//        std::cout << "Xafter: " <<  x << "Yafter: " << y << std::endl;
 	//        
 	//        ///////////// FIN EJEMPLO DE USO DE OPTICAS2GRAFICAS y GRAFICAS2OPTICAS ////////////////////
-	CvPoint3D32f aaa,bbb,ccc;
+	CvPoint3D32f aaa,rrr,arrr,ddd,addd,resresres,aresresres;
 	aaa.x = encodersData->robotx;
 	aaa.y = encodersData->roboty;
+	aaa.z =0;
 
-	bvector r = getRepulsion(getLaserData());
-	bbb.x=r.x;
-	bbb.y=r.y;
-	ccc.x = 1.; // Red
-	ccc.y = 1.; // Green
-	ccc.z = 0.; // Blue
-	this->relativas2absolutas(bbb,&bbb);
+	printf("repulsion x:%f repulsion y:%f\n",repulsion.x,repulsion.y);
+	printf("bdestino x:%f bdestino y:%f\n",bdestino.x,bdestino.y);
+	printf("resultante x:%f resultante y:%f\n",resultante.x,resultante.y);
+
+
+	rrr.x = repulsion.x;
+	rrr.y = repulsion.y;
+	colorRep.x = 1.; // Red
+	colorRep.y = 0.; // Green
+	colorRep.z = 0.; // Blue
+	this->relativas2absolutas(rrr,&arrr);
+	arrr.z=0;
+	this->pintaSegmento(aaa,arrr,colorRep);
+
+
+	ddd.x=bdestino.x;
+	ddd.y=bdestino.y;
+	colorDest.x = 0.;
+	colorDest.y = 0.;
+	colorDest.z = 1.;
+
+	this->relativas2absolutas(ddd,&addd);
+	addd.z=0;
+	this-> pintaSegmento(aaa,addd,colorDest);
 	
-	printf("\nbbb.x= %f bbb.y= %f bbb.z= %f\n",bbb.x,bbb.y,bbb.z);
-	printf("\naaa.x= %f aaa.y= %f aaa.z= %f\n",aaa.x,aaa.y,aaa.z);
+	resresres.x = resultante.x;
+	resresres.y = resultante.y;
+	colorRes.x = 0.;
+	colorRes.y = 1.;
+	colorRes.z = 0.;
 
-	this->pintaSegmento(aaa,bbb,ccc);
+	this->relativas2absolutas(resresres,&aresresres);
+	resresres.z=0;
+	this->pintaSegmento(aaa,aresresres,colorRes);
 
-	bb.x = this->destino.x;
-	bb.y = this->destino.y;
-	bb.z = 0.;
 
-	aa.x = encodersData->robotx;
-	aa.y = encodersData->roboty;
-	aa.z = 0;
-
-	color.x = 1.; // Red
-	color.y = 0.; // Green
-	color.z = 0.; // Blue
-	this->pintaSegmento(aa, bb, color); // ROJO - Pinta un segmento desde el punto "aa" hasta el punto "bb"
-	this->pintaDestino(aa, bb, color); // ROJO - Marca con una estrella el destino seleccionado al hacer click con el botón central en el mundo 3D.
-	this->drawSphere(bb, color);
+	// this->pintaSegmento(aa, bb, colorDest); // ROJO - Pinta un segmento desde el punto "aa" hasta el punto "bb"
+	//this->pintaDestino(aa, bb, colorDest); // ROJO - Marca con una estrella el destino seleccionado al hacer click con el botón central en el mundo 3D.
+	 bb.x = this->destino.x;
+	 bb.y = this->destino.y;
+	 color.x =0.;
+	 color.y=0.;
+	 color.z=1.;
+	 this->drawSphere(bb, color);
 
 	/* this->drawProjectionLines();*/
 
